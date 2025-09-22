@@ -1,0 +1,38 @@
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+  wazuh-1514:
+    address: ":1514"
+  wazuh-1515:
+    address: ":1515"
+  wazuh-1516:
+    address: ":1516"
+  wazuh-55000:
+    address: ":55000"
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: alexander@acetos.be
+      storage: /etc/traefik/acme/acme.json
+      httpChallenge:
+        entryPoint: web
+
+providers:
+  file:
+    directory: /etc/traefik/dynamic
+    watch: true
+
+  consulCatalog:
+    endpoint:
+      address: "http://${CONSUL_HTTP_ADDR}" # your Consul agent address
+    exposedByDefault: false      # only expose services with traefik.enable=true label
+  
+api:
+  dashboard: true
+  insecure: false
+
+log:
+  level: INFO

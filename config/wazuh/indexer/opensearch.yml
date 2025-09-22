@@ -1,0 +1,8 @@
+cluster.name: wazuh-cluster
+node.name: wazuh-indexer
+network.host: 0.0.0.0
+http.port: 9200
+discovery.seed_hosts: ["wazuh-indexer.service.consul:9200"]
+xpack.security.enabled: false
+path.data: /var/lib/wazuh-indexer
+path.logs: /var/log/wazuh-indexer
