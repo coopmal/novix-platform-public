@@ -1,0 +1,21 @@
+[Unit]
+Description=Vault Server
+After=network.target docker.service
+Requires=network.target docker.service
+
+[Service]
+User=root
+Group=root
+WorkingDirectory={{VAULT_WORKDIR}}
+Environment=VAULT_ADDR=http://127.0.0.1:8200
+ExecStartPre={{VAULT_WORKDIR}}/vault-init.sh precheck
+ExecStart={{VAULT_BIN}} server -config={{VAULT_WORKDIR}}/vault.hcl
+ExecStartPost={{VAULT_WORKDIR}}/vault-init.sh postcheck
+Restart=on-failure
+RestartSec=10s
+LimitNOFILE=65536
+StandardOutput=append:/var/log/vault.log
+StandardError=append:/var/log/vault.log
+
+[Install]
+WantedBy=multi-user.target

@@ -125,58 +125,38 @@ for svc in "${!SERVICE_CONFIGS[@]}"; do
 done
 
 
+# === Create systemd service files for Vault and Nomad ===
+
+# === Set working Directories ===
+
+VAULT_WORKDIR="$CONFIG_PATH/vault"
+NOMAD_WORKDIR="$CONFIG_PATH/nomad"
+
 # === Detect binaries ===
+
 VAULT_BIN=$(command -v vault)
 NOMAD_BIN=$(command -v nomad)
 
-# === Vault systemd service ===
-echo "Configure Vault systemd service..."
-cat > /etc/systemd/system/vault.service <<EOF
-[Unit]
-Description=Vault Server
-After=network.target docker.service
-Requires=network.target docker.service
+# Replace variables in template and write to systemd
+sed -e "s|{{VAULT_WORKDIR}}|$VAULT_WORKDIR|g" \
+    -e "s|{{VAULT_BIN}}|$VAULT_BIN|g" \
+    "$VAULT_WORKDIR/templates/vault.service.template" > /etc/systemd/system/vault.service
 
-[Service]
-User=root
-Group=root
-Environment=VAULT_ADDR=http://127.0.0.1:8200
-ExecStartPre=$CONFIG_PATH/vault/vault-init.sh precheck
-ExecStart=$VAULT_BIN server -config=$CONFIG_PATH/vault/vault.hcl
-ExecStartPost=$CONFIG_PATH/vault/vault-init.sh postcheck
-Restart=on-failure
-RestartSec=10s
-LimitNOFILE=65536
+sed -e "s|{{NOMAD_WORKDIR}}|$NOMAD_WORKDIR|g" \
+    -e "s|{{NOMAD_BIN}}|$NOMAD_BIN|g" \
+    "$NOMAD_WORKDIR/templates/nomad.service.template" > /etc/systemd/system/nomad.service
 
-[Install]
-WantedBy=multi-user.target
-EOF
 
-# === Nomad systemd service ===
-echo "Configure Nomad systemd service..."
-mkdir -p /etc/nomad.d
-cp -v "$CONFIG_PATH/nomad/nomad.hcl" /etc/nomad.d/nomad.hcl
 
-cat > /etc/systemd/system/nomad.service <<EOF
-[Unit]
-Description=Nomad Agent
-After=network.target docker.service
-Requires=docker.service
+chmod +x "$VAULT_WORKDIR/vault-init.sh"
+chmod +x "$NOMAD_WORKDIR/nomad-jobs.sh"
 
-[Service]
-ExecStart=$NOMAD_BIN agent -config=/etc/nomad.d
-Restart=on-failure
-RestartSec=10s
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-EOF
 
 # === Reload systemd and enable services ===
 systemctl daemon-reload
 systemctl enable --now vault
 systemctl enable --now nomad
+
 
 # === Wait for Docker ===
 echo "Waiting for Docker daemon..."

@@ -1,0 +1,18 @@
+[Unit]
+Description=Nomad Agent
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+User=root
+Group=root
+WorkingDirectory={{NOMAD_WORKDIR}}
+ExecStart={{NOMAD_BIN}} agent -config={{NOMAD_WORKDIR}}/nomad
+Restart=on-failure
+RestartSec=10s
+LimitNOFILE=65536
+StandardOutput=append:/var/log/nomad.log
+StandardError=append:/var/log/nomad.log
+
+[Install]
+WantedBy=multi-user.target
