@@ -1,0 +1,13 @@
+[Unit]
+Description=Deploy Nomad Jobs
+After=nomad.service
+Requires=nomad.service
+
+[Service]
+Type=oneshot
+WorkingDirectory={{NOMAD_WORKDIR}}
+ExecStart={{NOMAD_WORKDIR}}/nomad-jobs.sh start
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

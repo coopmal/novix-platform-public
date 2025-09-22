@@ -1,0 +1,14 @@
+[Unit]
+Description=Vault Initialization & Auto-Unseal
+After=vault.service
+Requires=vault.service
+
+[Service]
+Type=oneshot
+WorkingDirectory={{VAULT_WORKDIR}}
+Environment=VAULT_ADDR=http://127.0.0.1:8200
+ExecStart={{VAULT_WORKDIR}}/vault-init.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

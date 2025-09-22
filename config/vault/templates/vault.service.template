@@ -4,11 +4,10 @@ After=network.target docker.service
 Requires=docker.service
 
 [Service]
-# Run Vault as root (or create a dedicated vault user)
 User=root
 Group=root
 
-# Set working directory to your repo-relative Vault config
+# Working directory for Vault
 WorkingDirectory={{VAULT_WORKDIR}}
 
 # Vault address for scripts
@@ -17,15 +16,12 @@ Environment=VAULT_ADDR=http://127.0.0.1:8200
 # Start Vault server
 ExecStart={{VAULT_BIN}} server -config={{VAULT_WORKDIR}}/vault.hcl
 
-# Run initialization/unseal after Vault is running
-ExecStartPost={{VAULT_WORKDIR}}/vault-init.sh poststart
-
-# Restart on failure
+# Restart if Vault crashes
 Restart=on-failure
 RestartSec=10s
 LimitNOFILE=65536
 
-# Logging: optional file logging
+# Optional logging
 StandardOutput=append:/var/log/vault.log
 StandardError=append:/var/log/vault.err.log
 

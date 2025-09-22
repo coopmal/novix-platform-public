@@ -1,7 +1,7 @@
 [Unit]
 Description=Nomad Agent
-After=network.target docker.service
-Requires=docker.service
+After=network.target docker.service vault-init.service
+Requires=docker.service vault-init.service
 
 
 [Service]
@@ -9,8 +9,10 @@ Requires=docker.service
 User=root
 Group=root
 
+
 # Set working directory to your repo-relative Vault config
 WorkingDirectory={{NOMAD_WORKDIR}}
+
 
 # Start Nomad agent server
 ExecStart={{NOMAD_BIN}} agent -config={{NOMAD_WORKDIR}}
