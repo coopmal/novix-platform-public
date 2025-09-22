@@ -63,9 +63,6 @@ for pkg in nomad vault; do
     fi
 done
 
-apt update -y
-apt upgrade -y
-
 # === Setup paths ===
 ROOT_PATH="$(pwd)"
 CONFIG_PATH="$ROOT_PATH/config"
