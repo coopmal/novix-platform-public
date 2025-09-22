@@ -15,6 +15,7 @@ if ! command -v docker &>/dev/null; then
         ca-certificates \
         curl \
         gnupg \
+        rsync \
         lsb-release \
         software-properties-common
 
@@ -61,6 +62,9 @@ for pkg in nomad vault; do
         echo "$pkg already installed, skipping..."
     fi
 done
+
+apt update -y
+apt upgrade -y
 
 # === Setup paths ===
 ROOT_PATH="$(pwd)"
