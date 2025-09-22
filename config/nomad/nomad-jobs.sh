@@ -1,20 +1,33 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-ROOT_PATH="$(pwd)"  # repo root
+ROOT_PATH="$(pwd)"                # Repo root
 NOMAD_JOBS_PATH="$ROOT_PATH/nomad"
 
-# List of Nomad jobs in dependency order
+# Nomad jobs in dependency order
 JOBS=("consul" "vault" "traefik" "traefik-cert-sync" "redis" "clamav" "wazuh")
 
-# Simple service wait function using Nomad's status
+# Timeout for waiting for jobs (seconds)
+DEFAULT_TIMEOUT=60
+CRITICAL_TIMEOUT=120
+
+# Wait for a job to be running with timeout
 wait_for_job() {
     local job="$1"
-    echo "Waiting for $job to be running..."
-    until nomad status "$job" | grep -q "running"; do
+    local timeout="${2:-$DEFAULT_TIMEOUT}"
+    local elapsed=0
+
+    echo "Waiting for job '$job' to be running (timeout: ${timeout}s)..."
+    until nomad status "$job" 2>/dev/null | grep -q "running"; do
         sleep 2
+        elapsed=$((elapsed + 2))
+        if [ $elapsed -ge $timeout ]; then
+            echo "ERROR: Job '$job' did not reach 'running' state after $timeout seconds"
+            nomad status "$job"
+            exit 1
+        fi
     done
-    echo "$job is now running."
+    echo "Job '$job' is now running."
 }
 
 usage() {
@@ -22,29 +35,34 @@ usage() {
     exit 1
 }
 
+# Start jobs in order
 start_jobs() {
     for job in "${JOBS[@]}"; do
         echo "Starting job: $job"
         nomad run "$NOMAD_JOBS_PATH/$job.nomad"
-        
-        # Wait for critical dependencies
+
+        # Wait for critical dependencies or long-running jobs
         case "$job" in
-            vault|consul)
-                wait_for_job "$job"
+            consul|vault)
+                wait_for_job "$job" $CRITICAL_TIMEOUT
+                ;;
+            *)
+                wait_for_job "$job" $DEFAULT_TIMEOUT
                 ;;
         esac
     done
 }
 
+# Stop jobs in reverse order
 stop_jobs() {
-    # Stop in reverse order
-    for (( idx=${#JOBS[@]}-1 ; idx>=0 ; idx-- )) ; do
+    for (( idx=${#JOBS[@]}-1 ; idx>=0 ; idx-- )); do
         job="${JOBS[idx]}"
         echo "Stopping job: $job"
         nomad stop -purge "$job" || true
     done
 }
 
+# Show status for all jobs
 status_jobs() {
     for job in "${JOBS[@]}"; do
         echo "Status for job: $job"
@@ -53,12 +71,14 @@ status_jobs() {
     done
 }
 
+# Restart all jobs
 restart_jobs() {
     stop_jobs
     sleep 3
     start_jobs
 }
 
+# Plan jobs
 plan_jobs() {
     for job in "${JOBS[@]}"; do
         echo "Plan for job: $job"

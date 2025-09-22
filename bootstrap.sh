@@ -127,6 +127,11 @@ for svc in "${!SERVICE_CONFIGS[@]}"; do
     fi
 done
 
+
+# === Detect binaries ===
+VAULT_BIN=$(command -v vault)
+NOMAD_BIN=$(command -v nomad)
+
 # === Vault systemd service ===
 echo "Configure Vault systemd service..."
 cat > /etc/systemd/system/vault.service <<EOF
@@ -138,14 +143,10 @@ Requires=network.target docker.service
 [Service]
 User=root
 Group=root
-Environment=ROOT_PATH=$ROOT_PATH
-Environment=CONFIG_PATH=$CONFIG_PATH
-Environment=VOLUMES_PATH=$VOLUMES_PATH
 Environment=VAULT_ADDR=http://127.0.0.1:8200
-
-ExecStartPre=\$CONFIG_PATH/vault/vault-init.sh precheck
-ExecStart=/usr/local/bin/vault server -config=\$CONFIG_PATH/vault/vault.hcl
-ExecStartPost=\$CONFIG_PATH/vault/vault-init.sh postcheck
+ExecStartPre=$CONFIG_PATH/vault/vault-init.sh precheck
+ExecStart=$VAULT_BIN server -config=$CONFIG_PATH/vault/vault.hcl
+ExecStartPost=$CONFIG_PATH/vault/vault-init.sh postcheck
 Restart=on-failure
 RestartSec=10s
 LimitNOFILE=65536
@@ -166,7 +167,7 @@ After=network.target docker.service
 Requires=docker.service
 
 [Service]
-ExecStart=/usr/local/bin/nomad agent -config=/etc/nomad.d
+ExecStart=$NOMAD_BIN agent -config=/etc/nomad.d
 Restart=on-failure
 RestartSec=10s
 LimitNOFILE=65536
@@ -175,23 +176,54 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 EOF
 
-# Reload systemd and enable services
+# === Reload systemd and enable services ===
 systemctl daemon-reload
 systemctl enable --now vault
 systemctl enable --now nomad
 
-# === Wait for Docker, Vault, Nomad readiness ===
+# === Wait for Docker ===
 echo "Waiting for Docker daemon..."
-timeout=60; elapsed=0
-while ! docker info &>/dev/null; do sleep 2; elapsed=$((elapsed+2)); [ $elapsed -ge $timeout ] && { echo "Docker not ready"; exit 1; }; done
+timeout=60
+elapsed=0
+while ! docker info &>/dev/null; do
+    sleep 2
+    elapsed=$((elapsed + 2))
+    if [ $elapsed -ge $timeout ]; then
+        echo "Docker not ready after $timeout seconds"
+        exit 1
+    fi
+done
 
-echo "Waiting for Vault..."
-vault_timeout=60; vault_elapsed=0
-while ! vault status &>/dev/null; do sleep 2; vault_elapsed=$((vault_elapsed+2)); [ $vault_elapsed -ge $vault_timeout ] && { echo "Vault not ready"; exit 1; }; done
+# === Wait for Vault systemd service ===
+echo "Waiting for Vault to be ready..."
+vault_timeout=120
+vault_elapsed=0
+until vault status &>/dev/null; do
+    sleep 2
+    vault_elapsed=$((vault_elapsed + 2))
+    if [ $vault_elapsed -ge $vault_timeout ]; then
+        echo "Vault not ready after $vault_timeout seconds"
+        systemctl status vault
+        exit 1
+    fi
+done
+echo "Vault is ready."
 
+# === Wait for Nomad systemd service ===
 echo "Waiting for Nomad agent..."
-nomad_timeout=60; nomad_elapsed=0
-while ! nomad status &>/dev/null; do sleep 2; nomad_elapsed=$((nomad_elapsed+2)); [ $nomad_elapsed -ge $nomad_timeout ] && { echo "Nomad not ready"; exit 1; }; done
+nomad_timeout=60
+nomad_elapsed=0
+until nomad node status &>/dev/null; do
+    sleep 2
+    nomad_elapsed=$((nomad_elapsed + 2))
+    if [ $nomad_elapsed -ge $nomad_timeout ]; then
+        echo "Nomad agent not ready after $nomad_timeout seconds"
+        systemctl status nomad
+        exit 1
+    fi
+done
+echo "Nomad agent is ready."
+
 
 
 # === Wazuh Config Setup (Vault-backed, Git-safe) ===
@@ -216,26 +248,16 @@ vault kv get -field=dashboard_password secret/wazuh &>/dev/null || \
 vault kv put secret/wazuh dashboard_password="$WAZUH_DASHBOARD_PASSWORD"
 vault kv get -field=cluster_key secret/wazuh &>/dev/null || \
 vault kv put secret/wazuh cluster_key="$WAZUH_CLUSTER_KEY"
-# vault kv get -field=client_id secret/wazuh &>/dev/null || \
-# vault kv put secret/wazuh client_id="$O365_CLIENT_ID"
-# vault kv get -field=client_secret secret/wazuh &>/dev/null || \
-# vault kv put secret/wazuh client_secret="$O365_CLIENT_SECRET"
-# vault kv get -field=tenant_id secret/wazuh &>/dev/null || \
-# vault kv put secret/wazuh tenant_id="$O365_TENANT_ID"
+
 
 # --- Pull secrets from Vault for injection ---
 WAZUH_DASHBOARD_PASSWORD=$(vault kv get -field=dashboard_password secret/wazuh)
 WAZUH_CLUSTER_KEY=$(vault kv get -field=cluster_key secret/wazuh)
-#O365_CLIENT_ID=$(vault kv get -field=client_id secret/wazuh)
-#O365_CLIENT_SECRET=$(vault kv get -field=client_secret secret/wazuh)
-#O365_TENANT_ID=$(vault kv get -field=tenant_id secret/wazuh)
+
 
 # --- Inject secrets into ossec.conf ---
 sed -e "s|{{WAZUH_DASHBOARD_PASSWORD}}|$WAZUH_DASHBOARD_PASSWORD|g" \
     -e "s|{{WAZUH_CLUSTER_KEY}}|$WAZUH_CLUSTER_KEY|g" \
-    -e "s|{{O365_CLIENT_ID}}|$O365_CLIENT_ID|g" \
-    -e "s|{{O365_CLIENT_SECRET}}|$O365_CLIENT_SECRET|g" \
-    -e "s|{{O365_TENANT_ID}}|$O365_TENANT_ID|g" \
     "$OSSEC_TEMPLATE" > "$OSSEC_FINAL"
 
 # --- Set secure permissions ---
