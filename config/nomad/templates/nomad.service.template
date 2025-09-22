@@ -3,16 +3,29 @@ Description=Nomad Agent
 After=network.target docker.service
 Requires=docker.service
 
+
 [Service]
+# Run Nomad as root (or create a dedicated vault user)
 User=root
 Group=root
+
+# Set working directory to your repo-relative Vault config
 WorkingDirectory={{NOMAD_WORKDIR}}
-ExecStart={{NOMAD_BIN}} agent -config={{NOMAD_WORKDIR}}/nomad
+
+# Start Nomad agent server
+ExecStart={{NOMAD_BIN}} agent -config={{NOMAD_WORKDIR}}
+
+
+# Restart on failure
 Restart=on-failure
 RestartSec=10s
 LimitNOFILE=65536
+
+
+# Logging: optional file logging
 StandardOutput=append:/var/log/nomad.log
-StandardError=append:/var/log/nomad.log
+StandardError=append:/var/log/nomad.err.log
+
 
 [Install]
 WantedBy=multi-user.target

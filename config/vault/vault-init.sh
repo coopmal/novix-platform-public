@@ -9,23 +9,8 @@ POLICIES_DIR="./policies"
 
 export VAULT_ADDR
 
-# Wait for Vault to be ready (max 60s)
-echo "Waiting for Vault to be available at $VAULT_ADDR ..."
-for i in {1..12}; do
-  if vault status > /dev/null 2>&1; then
-    break
-  fi
-  sleep 5
-done
-
-if ! vault status > /dev/null 2>&1; then
-  echo "Vault is not reachable after 60 seconds."
-  exit 1
-fi
-
-if vault status | grep -q 'Initialized.*true'; then
-  echo "Vault is already initialized."
-else
+# === Initialize Vault if not already initialized ===
+if ! vault status | grep -q 'Initialized.*true'; then
   echo "Initializing Vault..."
   vault operator init -key-shares=1 -key-threshold=1 > "$INIT_FILE"
   echo "Vault initialized. Keys saved in $INIT_FILE"
@@ -33,58 +18,39 @@ else
   UNSEAL_KEY=$(grep 'Unseal Key 1:' "$INIT_FILE" | awk '{print $4}')
   ROOT_TOKEN=$(grep 'Initial Root Token:' "$INIT_FILE" | awk '{print $4}')
 
-  # Generate passphrase if not already set
+  # Generate GPG passphrase
   if [ ! -f "$GPG_PASSPHRASE_FILE" ]; then
     head -c 32 /dev/urandom | base64 > "$GPG_PASSPHRASE_FILE"
     chmod 600 "$GPG_PASSPHRASE_FILE"
-    echo "Generated Vault GPG passphrase at $GPG_PASSPHRASE_FILE"
   fi
 
-  # Encrypt unseal key with gpg symmetric encryption
-  echo -n "$UNSEAL_KEY" | gpg --batch --yes \
-      --passphrase-file "$GPG_PASSPHRASE_FILE" \
-      -c -o "$SEALED_FILE"
-
+  # Encrypt unseal key
+  echo -n "$UNSEAL_KEY" | gpg --batch --yes --passphrase-file "$GPG_PASSPHRASE_FILE" -c -o "$SEALED_FILE"
   chmod 600 "$SEALED_FILE"
-  echo "Unseal key encrypted and stored at $SEALED_FILE"
 fi
 
-# Always unseal Vault on startup
+# === Auto-unseal on startup ===
 if [ -f "$SEALED_FILE" ]; then
-  echo "Decrypting unseal key..."
-  UNSEAL_KEY=$(gpg --batch --yes --quiet \
-      --passphrase-file "$GPG_PASSPHRASE_FILE" \
-      -d "$SEALED_FILE")
+  UNSEAL_KEY=$(gpg --batch --yes --quiet --passphrase-file "$GPG_PASSPHRASE_FILE" -d "$SEALED_FILE")
   vault operator unseal "$UNSEAL_KEY"
 fi
 
-# Login with root token (from init file)
+# === Login with root token ===
 if [ -f "$INIT_FILE" ]; then
   ROOT_TOKEN=$(grep 'Initial Root Token:' "$INIT_FILE" | awk '{print $4}')
   vault login "$ROOT_TOKEN"
 fi
 
-echo "Vault initialization and auto-unseal complete."
-
-
-echo "Enabling secret engines and auth methods (idempotent)..."
-
-enable_secret() {
-  local path="$1"
-  local type="$2"
+# === Enable secrets & auth methods ===
+enable_secret() { local path="$1"; local type="$2"
   if ! vault secrets list -format=json | jq -e ".[\"$path/\"]" >/dev/null; then
     vault secrets enable -path="$path" "$type"
-  else
-    echo "Secret engine $path already enabled."
   fi
 }
 
-enable_auth() {
-  local type="$1"
+enable_auth() { local type="$1"
   if ! vault auth list -format=json | jq -e ".[\"$type/\"]" >/dev/null; then
     vault auth enable "$type"
-  else
-    echo "Auth method $type already enabled."
   fi
 }
 
@@ -107,17 +73,11 @@ enable_auth oidc
 enable_auth github
 enable_auth token
 
-
-echo "Creating Vault policies..."
+# === Apply policies ===
 if [ -d "$POLICIES_DIR" ]; then
   for policy_file in "$POLICIES_DIR"/*.hcl; do
-    policy_name=$(basename "$policy_file" .hcl)
-    echo "Writing policy $policy_name from $policy_file"
-    vault policy write "$policy_name" "$policy_file"
+    vault policy write "$(basename "$policy_file" .hcl)" "$policy_file"
   done
-else
-  echo "No policies directory found, skipping..."
 fi
 
-echo "Vault initialization and configuration complete."
-echo "You can now use the keys and tokens from $INIT_FILE to access Vault."
+echo "Vault auto-unseal and configuration complete."
